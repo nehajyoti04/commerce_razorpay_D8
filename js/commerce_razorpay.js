@@ -19,7 +19,16 @@
                 "image": logo,
                 "order_id": merchant_order_id,
                 "handler": function(response) {
-                    window.location = '/capture-payment?amount=' + amount + '&order_id=' + commerce_order_id + '&payment_settings=' + payment_settings + '&response=' + JSON.stringify(response);
+                    var relativeUrl = '/../../../capture-payment?amount=' + amount + '&order_id=' + commerce_order_id + '&payment_settings=' + payment_settings + '&response=' + JSON.stringify(response);
+
+                    window.location.href = window.location.origin + window.location.pathname + relativeUrl;
+                },
+                "modal": {
+                    "ondismiss": function() {
+                        var relativeUrl = '/../../../cancel-payment?order_id=' + commerce_order_id;
+
+                        window.location.href = window.location.origin + window.location.pathname + relativeUrl;
+                    }
                 },
                 "prefill": {
                     "name": name,

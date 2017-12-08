@@ -6,77 +6,85 @@ use Drupal\commerce_order\Entity\Order;
 use Drupal\commerce_payment\PluginForm\PaymentOffsiteForm as BasePaymentOffsiteForm;
 use Drupal\Core\Form\FormStateInterface;
 use Razorpay\Api\Api;
-use Symfony\Component\ExpressionLanguage\Tests\Node\Obj;
 
 /**
  * Provides the Off-site payment form.
  */
-class RazorpayForm extends BasePaymentOffsiteForm {
+class RazorpayForm extends BasePaymentOffsiteForm
+{
+    /**
+     * {@inheritdoc}
+     */
+    public function buildConfigurationForm(array $form, FormStateInterface $form_state)
+    {
+        $form = parent::buildConfigurationForm($form, $form_state);
+        global $base_url;
 
+        /** @var \Drupal\commerce_payment\Entity\PaymentInterface $payment */
+        $payment = $this->entity;
 
-  /**
-   * {@inheritdoc}
-   */
-  public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
-    $form = parent::buildConfigurationForm($form, $form_state);
-    global $base_url;
+        /** @var \Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayInterface $payment_gateway_plugin */
+        $payment_gateway_plugin = $payment->getPaymentGateway()->getPlugin();
 
-    /** @var \Drupal\commerce_payment\Entity\PaymentInterface $payment */
-    $payment = $this->entity;
+        $owner = \Drupal::routeMatch()->getParameter('commerce_order')->getCustomer();
+        $order_id = \Drupal::routeMatch()->getParameter('commerce_order')->id();
+        $order = Order::load($order_id);
 
-    /** @var \Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OffsitePaymentGatewayInterface $payment_gateway_plugin */
-    $payment_gateway_plugin = $payment->getPaymentGateway()->getPlugin();
+        $billing_profile = $order->getBillingProfile();
 
-    $owner = \Drupal::routeMatch()->getParameter('commerce_order')->getCustomer();
-    $order_id = \Drupal::routeMatch()->getParameter('commerce_order')->id();
-    $order = Order::load($order_id);
+        $address = $order->getBillingProfile()->address->first();
 
-    $billing_profile = $order->getBillingProfile();
+        $amount = ($payment->getAmount()->getNumber()) * 100;
 
-    $address = $order->getBillingProfile()->address->first();
+        $key_id = $payment_gateway_plugin->getConfiguration()['key_id'];
+        $key_secret = $payment_gateway_plugin->getConfiguration()['key_secret'];
+        $currency = $payment->getAmount()->getCurrencyCode();
+        $receipt = $order_id;
+        $payment_capture = FALSE;
 
-    $amount = ($payment->getAmount()->getNumber()) * 100;
+        $api = new Api($key_id, $key_secret);
+        $razorpay_order = $api->order->create(array(
+            'amount' => $amount,
+            "currency" => $currency,
+            "receipt" => $receipt,
+            'payment_capture' => $payment_capture
+        ));
 
-    $key_id = $payment_gateway_plugin->getConfiguration()['key_id'];
-    $key_secret = $payment_gateway_plugin->getConfiguration()['key_secret'];
-    $currency = $payment->getAmount()->getCurrencyCode();
-    $receipt = $order_id;
-    $payment_capture = FALSE;
+        $merchant_order_id = $razorpay_order->id;
+        $order->setData('merchant_order_id', $merchant_order_id);
+        $order->save();
 
-    $api = new Api($key_id, $key_secret);
-    $razorpay_order = $api->order->create(array(
-      'amount' => $amount,
-      "currency" => $currency,
-      "receipt" => $receipt,
-      'payment_capture' => $payment_capture
-    ));
+        $payment_method =$payment_gateway_plugin->getConfiguration();
 
-    $merchant_order_id = $razorpay_order->id;
-    $order->setData('merchant_order_id', $merchant_order_id);
-    $order->save();
+        // Attach library.
+        $form['#attached']['library'][] = 'commerce_razorpay/commerce_razorpay.payment';
+        $form['#attached']['drupalSettings']['commerce_razorpay'] = array(
+            'amount' => $amount,
+            'key' => $key_id,
+            'logo' => $base_url . "/" . drupal_get_path('module', 'commerce_razorpay') . '/logo.jpg',
+            'order_id' => $merchant_order_id,
+            'commerce_order_id' => $order_id,
+            'payment_settings' => $payment_method,
+            'name' => $address->getGivenName(). " " . $address->getFamilyName(),
+            'address' => $address->getAddressLine1() . " " . $address->getLocality() . " " . $address->getAdministrativeArea(),
+            'email' => $order->getEmail(),
+        );
 
-    $payment_method =$payment_gateway_plugin->getConfiguration();
+        return $this->buildRedirectForm($form, $form_state, $base_url, []);
+    }
 
-    // Attach library.
-    $form['#attached']['library'][] = 'commerce_razorpay/commerce_razorpay.payment';
-    $form['#attached']['drupalSettings']['commerce_razorpay'] = array(
-      'amount' => $amount,
-      'key' => $key_id,
-      'logo' => $base_url . "/" . drupal_get_path('module', 'commerce_razorpay') . '/logo.jpg',
-      'order_id' => $merchant_order_id,
-      'commerce_order_id' => $order_id,
-      'payment_settings' => $payment_method,
-      'name' => $address->getGivenName(). " " . $address->getFamilyName(),
-      'address' => $address->getAddressLine1() . " " . $address->getLocality() . " " . $address->getAdministrativeArea(),
-      'email' => $order->getEmail(),
-    );
-
-    return $this->buildRedirectForm($form, $form_state);
-  }
-
-  protected function buildRedirectForm(array $form, FormStateInterface $form_state) {
-
-    return $form;
-  }
-
+    /**
+     * @override
+     *
+     * @param array $form
+     * @param FormStateInterface $form_state
+     * @param string $redirect_url
+     * @param array $data
+     * @param string $redirect_method
+     * @return array
+     */
+    protected function buildRedirectForm(array $form, FormStateInterface $form_state, $redirect_url, array $data, $redirect_method = self::REDIRECT_GET)
+    {
+        return $form;
+    }
 }
